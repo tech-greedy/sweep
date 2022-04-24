@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import retry from 'async-retry';
-import { CacheContent } from './model';
+import { Message, MethodType, SectorOnChainInfo } from './model';
 
 async function exists (path: string): Promise<boolean> {
   try {
@@ -14,7 +14,7 @@ async function exists (path: string): Promise<boolean> {
   }
 }
 
-async function fetchMessages(miner: string, method: string, last: number): Promise<any[]> {
+async function fetchMessages(miner: string, method: MethodType, lastHeight: number): Promise<Message[]> {
   let page = 0;
   let response;
   let breakOuter = false;
@@ -28,7 +28,7 @@ async function fetchMessages(miner: string, method: string, last: number): Promi
         try {
           r = await axios.get(url)
         } catch (e) {
-          console.warn(e);
+          console.warn('Fetch failed, retry in 60 secs...');
           throw e;
         }
         return r;
@@ -38,7 +38,7 @@ async function fetchMessages(miner: string, method: string, last: number): Promi
       }
     );
     for (const message of response.data.messages) {
-      if (message.height <= last) {
+      if (message.height <= lastHeight) {
         breakOuter = true;
         break;
       }
@@ -49,17 +49,11 @@ async function fetchMessages(miner: string, method: string, last: number): Promi
   return result;
 }
 
-export default async function fetch(miner: string) :Promise<CacheContent> {
+export async function fetch(miner: string, method: MethodType) :Promise<Message[]> {
   const folder = path.join(os.homedir(), '.sweep');
   await fs.mkdir(folder, {recursive: true});
-  const filePath = path.join(folder, `${miner}.cached.json`);
-  let cache: CacheContent = {
-    last: {
-      precommit: -1,
-      precommitbatch: -1,
-    },
-    sectors: []
-  };
+  const filePath = path.join(folder, `${miner}.${method}.json`);
+  let cache: Message[] = []
   // Get cached state
   if (await exists(filePath)) {
     console.log(`Reading from cache ${filePath}`);
@@ -67,25 +61,22 @@ export default async function fetch(miner: string) :Promise<CacheContent> {
     cache = JSON.parse(cachedContent)
   }
 
-  for(const message of await fetchMessages(miner, "PreCommitSector", cache.last.precommit)) {
-    cache.sectors.push({
-      height: message.height,
-      deposit: message.value,
-    })
-    if (message.height > cache.last.precommit) {
-      cache.last.precommit = message.height;
-    }
-  }
-  for(const message of await fetchMessages(miner, "PreCommitSectorBatch", cache.last.precommitbatch)) {
-    cache.sectors.push({
-      height: message.height,
-      deposit: message.value,
-    })
-    if (message.height > cache.last.precommitbatch) {
-      cache.last.precommitbatch = message.height;
-    }
-  }
+  const lastHeight = Math.max(...cache.map((message) => message.height));
+  cache.push(... await fetchMessages(miner, method, lastHeight));
   console.log(`Writing to cache ${filePath}`);
   await fs.writeFile(filePath, JSON.stringify(cache));
   return cache;
+}
+
+export async function getSectors(miner: string) : Promise<SectorOnChainInfo[]>{
+  const url = 'https://api.node.glif.io/rpc/v0';
+  const method = "Filecoin.StateMinerSectors";
+  console.warn(`Fetching ${url} with ${method}`);
+  const response = await axios.post(url, {
+    "id":1,
+    "jsonrpc":"2.0",
+    "method":"Filecoin.StateMinerSectors",
+    "params":[miner, null, null]
+  });
+  return response.data.result;
 }

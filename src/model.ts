@@ -1,14 +1,25 @@
-export interface LastProcessed {
-  precommit: number,
-  precommitbatch: number,
+export enum MethodType {
+  PreCommitSector = 'PreCommitSector',
+  PreCommitSectorBatch = 'PreCommitSectorBatch',
+  ProveCommitSector = 'ProveCommitSector',
+  ProveCommitAggregate = 'ProveCommitAggregate',
 }
 
-export interface SectorInfo {
+export interface Message {
+  cid: string,
+  from: string,
   height: number,
-  deposit: string,
+  method: MethodType,
+  nonce: number,
+  Receipt: {
+    exitCode: number
+  },
+  timestamp: number,
+  to: string,
+  value: string
 }
 
-export interface CacheContent {
-  last: LastProcessed,
-  sectors: SectorInfo[],
+export interface SectorOnChainInfo {
+  Activation: number,
+  InitialPledge: string,
 }

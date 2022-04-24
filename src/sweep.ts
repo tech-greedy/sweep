@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import packageJson from '../package.json';
-import fetch from './util';
+import { MethodType } from './model';
+import { fetch, getSectors } from './util';
 
 const program = new Command();
 const version = packageJson.version;
@@ -28,15 +29,20 @@ function toHeight(date: string) {
 }
 
 (async () => {
-  const cache = await fetch(miner);
+  const pre = (await fetch(miner, MethodType.PreCommitSector)).concat(await fetch(miner, MethodType.PreCommitSectorBatch));
+  const prove = (await fetch(miner, MethodType.ProveCommitSector)).concat(await fetch(miner, MethodType.ProveCommitAggregate));
+  const sectors = await getSectors(miner);
   const from = toHeight(options.from);
   const to = toHeight(options.to);
-  let deposit = BigInt(0);
-  for(const sector of cache.sectors) {
-    if (sector.height >= from && sector.height < to) {
-      deposit += BigInt(sector.deposit);
-    }
-  }
+  const depositTransfered = pre.filter((message) => message.height >= from && message.height < to)
+    .reduce((sum, message) => sum + BigInt(message.value), BigInt(0));
+  const collateralTransfered = prove.filter((message) => message.height >= from && message.height < to)
+    .reduce((sum, message) => sum + BigInt(message.value), BigInt(0));
+  const collateralRequired = sectors.filter((sector) => sector.Activation >= from && sector.Activation < to)
+    .reduce((sum, sector) => sum + BigInt(sector.InitialPledge), BigInt(0));
 
-  console.log(Number(deposit) / 1e18);
+  console.log(`[A] Precommit deposit transfered: ${Number(depositTransfered) / 1e18}`);
+  console.log(`[B] ProveCommit collateral transfered: ${Number(collateralTransfered) / 1e18}`);
+  console.log(`[C] ProveCommit collateral required: ${Number(collateralRequired) / 1e18}`);
+  console.log(`To return: [A] + [B] - [C] = ${Number(depositTransfered + collateralTransfered - collateralRequired) / 1e18}`)
 })();
